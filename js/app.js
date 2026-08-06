@@ -1,13 +1,9 @@
 'use strict';
 
 (function () {
-  /* 等待页面加载完成 */
-  document.addEventListener('DOMContentLoaded', function () {
-    init();
-  });
+  document.addEventListener('DOMContentLoaded', function () { init(); });
 
   function init() {
-    // 1. 获取聚会 ID (从网址或生成新的)
     var params = window.Router ? window.Router.parseUrlParams() : {};
     var gatheringId = params.gatheringId || window.Utils.generateId('g');
     
@@ -17,42 +13,37 @@
 
     var name = params.gatheringName || '我的聚会';
 
-    // 2. 核心修复：先初始化同步，确保连接云端
+    // 1. 初始化同步
     if (window.Sync && window.FirebaseConfig) {
-      console.log('Sync Initializing with:', gatheringId);
       window.Sync.init(gatheringId);
     }
 
-    // 3. 设置聚会信息
+    // 2. 设置聚会 & 加载本地缓存
     var storedDishes = window.Store._storage.getItem('dishapp_dishes_' + gatheringId);
     var g = window.Models.createGathering(gatheringId, decodeURIComponent(name));
     window.Store.setGathering(g);
-    
-    // 尝试加载本地缓存
     if (storedDishes) window.Store.loadFromStorage(gatheringId);
 
-    // 4. 检查用户身份 (没名字不让进)
+    // 3. 身份检查
     if (window.Store._state.user && window.Store._state.user.name) {
       showMainUI();
     } else {
       if (window.NicknameModal) {
         window.NicknameModal.show();
-        window.NicknameModal.getUser().then(function(user) {
-          window.Store.setUser(user);
-          showMainUI();
+        window.NicknameModal.getUser().then(function(u) {
+          window.Store.setUser(u); showMainUI();
         });
       }
     }
 
-    // 5. 监听数据变化 -> 同步到云端 & 刷新界面
+    // 4. 监听数据变化
     window.Store.subscribe(function (state, change) {
-      // A. 推送数据到 Firebase
-      if (window.Sync) window.Sync.push(state.dishes);
+      // 🛡 核心修复：跳过 sync:restore 类型，避免云端同步回来又推回去造成死循环！
+      if (window.Sync && change.type !== 'sync:restore') {
+        window.Sync.push(state.dishes);
+      }
 
-      // B. 根据当前 Tab 刷新界面
       var activeTab = window.TabBar ? window.TabBar.getActiveTab() : 'all';
-      
-      // 检查是否有智能菜单生成器
       if (activeTab === 'menu' && window.MenuGenerator) {
         window.MenuGenerator.render(state.dishes);
       } else if (window.DishList) {
@@ -60,7 +51,13 @@
       }
     });
 
-    // 6. 切换 Tab 逻辑
+    // 5. 🛡 缓存回传：如果有本地缓存，延迟 1 秒推送到云端（防止覆盖别人的新数据）
+    if (storedDishes && window.Store.dishes.length > 0) {
+      setTimeout(() => {
+        window.Sync.push(window.Store._state.dishes);
+      }, 1500);
+    }
+
     if (window.TabBar) {
       window.TabBar.onChange(function (tab) {
         if (tab === 'menu' && window.MenuGenerator) {
@@ -70,6 +67,8 @@
         }
       });
     }
+
+    window.addEventListener('beforeunload', () => window.Sync.destroy());
   }
 
   function showMainUI() {
