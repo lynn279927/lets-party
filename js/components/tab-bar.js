@@ -6,10 +6,11 @@
   var scrollPositions = { all: 0, hot: 0, mine: 0 };
   var onChangeCallback = null;
 
-  var TABS = [
+   var TABS = [
     { key: 'all', label: '全部' },
-    { key: 'hot', label: '\uD83D\uDD25\uFE0F 热门' },
+    { key: 'hot', label: '🔥热门' },
     { key: 'mine', label: '我的' },
+    { key: 'menu', label: '🤖 推荐' } 
   ];
 
   function render() {
