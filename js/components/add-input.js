@@ -3,9 +3,7 @@
 (function () {
   var container;
   var inputEl;
-  var noteEl; // 新增：备注输入框
-  var duplicateHint;
-  var tagContainer;
+  var noteEl; 
   var TAGS = ['火锅', '烧烤', '奶茶', '烤鱼', '披萨', '炒菜', '随便', '辣的'];
 
   function render() {
@@ -15,18 +13,20 @@
     container.innerHTML = '';
     container.className = 'add-input-container';
 
-    /* 1. 标签行 */
-    tagContainer = document.createElement('div');
+    /* 1. 标签行 (交互优化：点击只填入，不自动提交) */
+    var tagContainer = document.createElement('div');
     tagContainer.className = 'add-input-tags';
 
     TAGS.forEach(function (tag) {
       var btn = document.createElement('button');
       btn.className = 'add-input-tag';
       btn.textContent = tag;
-      btn.setAttribute('aria-label', '快速添加' + tag);
-      // 点击标签直接提交，备注为空
+      btn.setAttribute('aria-label', '填入' + tag);
+      
+      // 核心改动：点击把字填进输入框，并光标聚焦，让用户写备注
       btn.addEventListener('click', function () {
-        submitDish(tag, '');
+        inputEl.value = tag;
+        inputEl.focus(); // 聚焦到输入框
       });
       tagContainer.appendChild(btn);
     });
@@ -37,13 +37,11 @@
     var inputRow = document.createElement('div');
     inputRow.className = 'add-input-row';
 
-    // 菜名输入
     inputEl = document.createElement('input');
     inputEl.type = 'text';
     inputEl.className = 'add-input-field';
     inputEl.placeholder = '✏️ 我想吃什么？';
     
-    // 新增：备注输入框
     noteEl = document.createElement('input');
     noteEl.type = 'text';
     noteEl.className = 'add-input-note';
@@ -61,6 +59,7 @@
     submitBtn.className = 'add-input-submit';
     submitBtn.textContent = '提交';
 
+    // 只有在点击“提交”按钮时才真正提交
     submitBtn.addEventListener('click', function () {
       submitDish(inputEl.value, noteEl.value);
     });
@@ -69,7 +68,6 @@
     container.appendChild(inputRow);
   }
 
-  // 统一提交逻辑
   function submitDish(name, note) {
     if (!name || !name.trim()) {
       Utils.showToast('请输入菜名');
@@ -83,7 +81,6 @@
       return;
     }
 
-    // 将备注传入 createDish
     var dish = Models.createDish(
       Utils.generateId('dish'),
       name.trim(),
@@ -95,12 +92,10 @@
     window.Store.addDish(dish);
     Utils.showToast('已添加「' + dish.name + '」');
     
-    // 清空输入框
     inputEl.value = '';
     noteEl.value = '';
   }
 
-  // 对外暴露接口
   window.AddInput = {
     render: render,
   };
