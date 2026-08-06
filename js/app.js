@@ -1,112 +1,81 @@
 'use strict';
 
 (function () {
-  /* Wait for DOM */
+  /* 等待页面加载完成 */
   document.addEventListener('DOMContentLoaded', function () {
     init();
   });
 
   function init() {
-    /* 1. 第一步：解析 URL，确定房间号 (gatheringId) */
-    var params = window.Router.parseUrlParams();
-    var gatheringId;
-
-    if (params.gatheringId) {
-      gatheringId = params.gatheringId;
-    } else {
-      var newId = window.Utils.generateId('g');
-      var autoName = '我的聚会';
-      window.Router.redirectToGathering(newId, autoName);
-      gatheringId = newId;
-    }
-
-    /* 2. 第二步：先建立同步通道 (修复核心 Bug) */
-    window.Sync.init(gatheringId);
-
-    /* 3. 第三步：再加载/创建聚会数据 */
-    var name = params.gatheringName || params.gatheringId;
-    var storedDishes = window.Store._storage.getItem('dishapp_dishes_' + gatheringId);
+    // 1. 获取聚会 ID (从网址或生成新的)
+    var params = window.Router ? window.Router.parseUrlParams() : {};
+    var gatheringId = params.gatheringId || window.Utils.generateId('g');
     
-    var g;
-    if (storedDishes) {
-      window.Store.loadFromStorage(gatheringId);
-      g = {
-        id: gatheringId,
-        name: decodeURIComponent(name),
-        createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(),
-      };
-    } else {
-      g = window.Models.createGathering(gatheringId, decodeURIComponent(name || gatheringId));
+    if (!params.gatheringId && window.Router) {
+      window.Router.redirectToGathering(gatheringId, '我的聚会');
     }
+
+    var name = params.gatheringName || '我的聚会';
+
+    // 2. 核心修复：先初始化同步，确保连接云端
+    if (window.Sync && window.FirebaseConfig) {
+      console.log('Sync Initializing with:', gatheringId);
+      window.Sync.init(gatheringId);
+    }
+
+    // 3. 设置聚会信息
+    var storedDishes = window.Store._storage.getItem('dishapp_dishes_' + gatheringId);
+    var g = window.Models.createGathering(gatheringId, decodeURIComponent(name));
     window.Store.setGathering(g);
+    
+    // 尝试加载本地缓存
+    if (storedDishes) window.Store.loadFromStorage(gatheringId);
 
-    /* 4. 处理本地存储警告 */
-    if (!window._isStorageAvailable) {
-      var banner = document.createElement('div');
-      banner.className = 'warning-banner';
-      banner.textContent = '\u26A0\uFE0F 数据仅在当前页面有效，关闭后丢失';
-      document.body.insertBefore(banner, document.body.firstChild);
-    }
-
-    /* 5. 检查用户身份 */
-    var storedUser = window.Store._state.user;
-    if (storedUser && storedUser.name) {
-      showMainUI(window.Sync.isFirebaseActive());
+    // 4. 检查用户身份 (没名字不让进)
+    if (window.Store._state.user && window.Store._state.user.name) {
+      showMainUI();
     } else {
-      window.NicknameModal.show();
-      window.NicknameModal.getUser().then(function (user) {
-        window.Store.setUser(user);
-        showMainUI(window.Sync.isFirebaseActive());
-      });
-    }
-
-    /* 6. 监听远程数据变化 */
-    window.Sync.onMessage(function (change) {
-      window.Sync.applyRemoteChange(window.Store, change);
-      var activeTab = window.TabBar ? window.TabBar.getActiveTab() : 'all';
-      if (window.DishList) window.DishList.render(activeTab);
-    });
-
-    /* 7. 页面可见性更新 */
-    document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState === 'visible') {
-        var gathering = window.Store._state.gathering;
-        if (gathering) {
-          window.Store.loadFromStorage(gathering.id);
-          var activeTab = window.TabBar ? window.TabBar.getActiveTab() : 'all';
-          if (window.DishList) window.DishList.render(activeTab);
-        }
+      if (window.NicknameModal) {
+        window.NicknameModal.show();
+        window.NicknameModal.getUser().then(function(user) {
+          window.Store.setUser(user);
+          showMainUI();
+        });
       }
-    });
-
-    /* 8. 清理 */
-    window.addEventListener('beforeunload', function () {
-      window.Sync.destroy();
-    });
-  }
-
-  function showMainUI(isCrossDevice) {
-    var gathering = window.Store._state.gathering;
-    if (gathering) {
-      window.GatheringHeader.render(gathering);
     }
-    window.TabBar.render();
-    window.DishList.render('all');
-    window.AddInput.render();
 
+    // 5. 监听数据变化 -> 同步到云端 & 刷新界面
     window.Store.subscribe(function (state, change) {
+      // A. 推送数据到 Firebase
+      if (window.Sync) window.Sync.push(state.dishes);
+
+      // B. 根据当前 Tab 刷新界面
       var activeTab = window.TabBar ? window.TabBar.getActiveTab() : 'all';
-      if (window.DishList) {
+      
+      // 检查是否有智能菜单生成器
+      if (activeTab === 'menu' && window.MenuGenerator) {
+        window.MenuGenerator.render(state.dishes);
+      } else if (window.DishList) {
         window.DishList.render(activeTab);
       }
-      if (window.AddInput && (change.type === 'dish:add' || change.type === 'dish:remove')) {
-        window.AddInput.render();
-      }
     });
 
-    window.TabBar.onChange(function (tab) {
-      window.DishList.render(tab);
-    });
+    // 6. 切换 Tab 逻辑
+    if (window.TabBar) {
+      window.TabBar.onChange(function (tab) {
+        if (tab === 'menu' && window.MenuGenerator) {
+          window.MenuGenerator.render(window.Store.dishes);
+        } else if (window.DishList) {
+          window.DishList.render(tab);
+        }
+      });
+    }
+  }
+
+  function showMainUI() {
+    if (window.GatheringHeader) window.GatheringHeader.render(window.Store._state.gathering);
+    if (window.TabBar) window.TabBar.render();
+    if (window.DishList) window.DishList.render('all');
+    if (window.AddInput) window.AddInput.render();
   }
 })();
