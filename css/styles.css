@@ -563,3 +563,15 @@ button:active {
   transform: scale(0.95);
   opacity: 0.85;
 }
+
+/* ===== 备注样式 ===== */
+.dish-notes {
+  background-color: #fff8e1; /* 浅黄色背景 */
+  color: #e65100; /* 深橙色文字 */
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  margin-top: 6px;
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
