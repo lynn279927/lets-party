@@ -8,7 +8,6 @@
 
    var TABS = [
     { key: 'all', label: '全部' },
-    { key: 'hot', label: '🔥热门' },
     { key: 'mine', label: '我的' },
     { key: 'menu', label: '🤖 推荐' } 
   ];
