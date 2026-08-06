@@ -25,12 +25,13 @@ window.Models = {
   },
 
   /* Create a dish object */
-  createDish(id, name, proposedBy, proposerName) {
+   createDish(id, name, proposedBy, proposerName, notes) {
     return {
       id: id,
       name: name,
       proposedBy: proposedBy,
       proposerName: proposerName,
+      notes: notes || '', // 新增：这里用来存备注！
       createdAt: new Date().toISOString(),
       votes: {},
       starredBy: [],
