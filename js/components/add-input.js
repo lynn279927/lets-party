@@ -2,11 +2,10 @@
 
 (function () {
   var container;
-  var tagContainer;
   var inputEl;
+  var noteEl; // 新增：备注输入框
   var duplicateHint;
-  var inputFocused = false;
-
+  var tagContainer;
   var TAGS = ['火锅', '烧烤', '奶茶', '烤鱼', '披萨', '炒菜', '随便', '辣的'];
 
   function render() {
@@ -16,7 +15,7 @@
     container.innerHTML = '';
     container.className = 'add-input-container';
 
-    /* Tag row */
+    /* 1. 标签行 */
     tagContainer = document.createElement('div');
     tagContainer.className = 'add-input-tags';
 
@@ -24,81 +23,55 @@
       var btn = document.createElement('button');
       btn.className = 'add-input-tag';
       btn.textContent = tag;
-      btn.dataset.tag = tag;
       btn.setAttribute('aria-label', '快速添加' + tag);
+      // 点击标签直接提交，备注为空
       btn.addEventListener('click', function () {
-        var currentUser = window.Store._state.user;
-        if (!currentUser) return;
-        if (!window.Store.canPropose(currentUser.id)) {
-          Utils.showToast('每人最多提5个菜哦');
-          return;
-        }
-        var dish = Models.createDish(
-          Utils.generateId('dish'),
-          tag,
-          currentUser.id,
-          currentUser.name
-        );
-        window.Store.addDish(dish);
-        Utils.showToast('已添加「' + tag + '」');
+        submitDish(tag, '');
       });
       tagContainer.appendChild(btn);
     });
 
     container.appendChild(tagContainer);
 
-    /* Duplicate hint (hidden by default) */
-    duplicateHint = document.createElement('div');
-    duplicateHint.className = 'add-input-duplicate-hint';
-    duplicateHint.style.display = 'none';
-    container.appendChild(duplicateHint);
-
-    /* Input row */
+    /* 2. 输入行 */
     var inputRow = document.createElement('div');
     inputRow.className = 'add-input-row';
 
+    // 菜名输入
     inputEl = document.createElement('input');
     inputEl.type = 'text';
     inputEl.className = 'add-input-field';
-    inputEl.placeholder = '\u270F\uFE0F 我想吃什么？';
-    inputEl.setAttribute('aria-label', '输入你想吃的菜');
+    inputEl.placeholder = '✏️ 我想吃什么？';
+    
+    // 新增：备注输入框
+    noteEl = document.createElement('input');
+    noteEl.type = 'text';
+    noteEl.className = 'add-input-note';
+    noteEl.placeholder = '📝 备注 (如：不吃辣/少盐)';
+    noteEl.style.cssText = 'display:block; width:100%; height:30px; margin-top:4px; font-size:13px; padding:0 8px; border:1px dashed #bbb; border-radius:12px;';
 
+    var inputGroup = document.createElement('div');
+    inputGroup.style.flex = '1';
+    inputGroup.appendChild(inputEl);
+    inputGroup.appendChild(noteEl);
+    inputRow.appendChild(inputGroup);
+
+    // 提交按钮
     var submitBtn = document.createElement('button');
     submitBtn.className = 'add-input-submit';
     submitBtn.textContent = '提交';
 
-    submitBtn.addEventListener('click', onSubmit);
-    inputEl.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') onSubmit();
+    submitBtn.addEventListener('click', function () {
+      submitDish(inputEl.value, noteEl.value);
     });
 
-    /* Focus detection for tag collapse */
-    inputEl.addEventListener('focus', function () {
-      inputFocused = true;
-      tagContainer.classList.add('collapsed');
-    });
-    inputEl.addEventListener('blur', function () {
-      inputFocused = false;
-      setTimeout(function () {
-        tagContainer.classList.remove('collapsed');
-      }, 200);
-    });
-
-    /* Real-time duplicate detection with debounce */
-    inputEl.addEventListener('input', Utils.debounce(function () {
-      checkDuplicates();
-    }, 300));
-
-    inputRow.appendChild(inputEl);
     inputRow.appendChild(submitBtn);
     container.appendChild(inputRow);
   }
 
-  function onSubmit() {
-    if (!inputEl) return;
-
-    var val = inputEl.value.trim();
-    if (!val) {
+  // 统一提交逻辑
+  function submitDish(name, note) {
+    if (!name || !name.trim()) {
       Utils.showToast('请输入菜名');
       return;
     }
@@ -110,80 +83,24 @@
       return;
     }
 
+    // 将备注传入 createDish
     var dish = Models.createDish(
       Utils.generateId('dish'),
-      val,
+      name.trim(),
       currentUser.id,
-      currentUser.name
+      currentUser.name,
+      (note || '').trim() 
     );
 
     window.Store.addDish(dish);
-    Utils.showToast('已添加「' + val + '」');
+    Utils.showToast('已添加「' + dish.name + '」');
+    
+    // 清空输入框
     inputEl.value = '';
-    hideDuplicateHint();
+    noteEl.value = '';
   }
 
-  function checkDuplicates() {
-    if (!inputEl || !window.Store) return;
-
-    var val = inputEl.value.trim();
-    if (!val) {
-      hideDuplicateHint();
-      return;
-    }
-
-    var dishes = window.Store.dishes;
-    var match = null;
-    for (var i = 0; i < dishes.length; i++) {
-      if (dishes[i].status === 'active' && Utils.isSimilar(val, dishes[i].name, 0.6)) {
-        match = dishes[i];
-        break;
-      }
-    }
-
-    if (match) {
-      showDuplicateHint(match);
-    } else {
-      hideDuplicateHint();
-    }
-  }
-
-  function showDuplicateHint(dish) {
-    if (!duplicateHint) return;
-    duplicateHint.style.display = 'block';
-    duplicateHint.innerHTML =
-      '已有「' + Utils.escapeHtml(dish.name) + '」' +
-      ' <button class="hint-btn hint-go" data-dishid="' + dish.id + '">去投票</button>' +
-      ' <button class="hint-btn hint-add">仍要添加</button>';
-
-    var goBtn = duplicateHint.querySelector('.hint-go');
-    var addBtn = duplicateHint.querySelector('.hint-add');
-
-    if (goBtn) {
-      goBtn.addEventListener('click', function () {
-        var currentUser = window.Store._state.user;
-        if (currentUser) window.Store.vote(dish.id, currentUser.id);
-        hideDuplicateHint();
-        if (inputEl) inputEl.value = '';
-        Utils.showToast('已投票');
-      });
-    }
-
-    if (addBtn) {
-      addBtn.addEventListener('click', function () {
-        hideDuplicateHint();
-        onSubmit();
-      });
-    }
-  }
-
-  function hideDuplicateHint() {
-    if (duplicateHint) {
-      duplicateHint.style.display = 'none';
-      duplicateHint.innerHTML = '';
-    }
-  }
-
+  // 对外暴露接口
   window.AddInput = {
     render: render,
   };
