@@ -63,11 +63,18 @@
 
     _notify(change) {
       this._saveToStorage();
+      // 将本地数据推送到云端 (Sync 模块)
       if (window.Sync) {
-        /* Pass dishes snapshot for Firebase write */
-        window.Sync.broadcast(change, this._state.dishes);
+        window.Sync.push(this._state.dishes);
       }
       this._subscribers.forEach((fn) => { fn(this._state, change); });
+    }
+
+    /* 新增：接收云端数据的方法 */
+    restoreDishes(dishesObject) {
+      this._state.dishes = dishesObject || {};
+      this._saveToStorage();
+      this._notify({ type: 'sync:restore' });
     }
 
     _saveToStorage() {
@@ -146,14 +153,11 @@
     star(dishId, userId) {
       const dish = this._state.dishes[dishId];
       if (!dish) return false;
-
-      /* First, remove star from all other dishes for this user */
       const allDishes = Object.values(this._state.dishes);
       allDishes.forEach((d) => {
         const idx = d.starredBy.indexOf(userId);
         if (idx !== -1) d.starredBy.splice(idx, 1);
       });
-
       dish.starredBy.push(userId);
       this._notify({ type: 'dish:star', dishId: dishId, userId: userId });
       return true;
@@ -174,8 +178,8 @@
       return dishes.sort((a, b) => {
         const voteA = Object.keys(a.votes || {}).length;
         const voteB = Object.keys(b.votes || {}).length;
-        if (voteB !== voteA) return voteB - voteA; /* desc by votes */
-        return new Date(a.createdAt) - new Date(b.createdAt); /* asc by time */
+        if (voteB !== voteA) return voteB - voteA;
+        return new Date(a.createdAt) - new Date(b.createdAt);
       });
     }
 
@@ -199,7 +203,7 @@
       if (!userId) return false;
       const dishes = Object.values(this._state.dishes);
       const count = dishes.filter((d) => d.proposedBy === userId).length;
-      return count < 5; /* max 5 dishes per user */
+      return count < 5;
     }
   }
 
