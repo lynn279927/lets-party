@@ -10,55 +10,57 @@
     
     if (!params.gatheringId && window.Router) {
       window.Router.redirectToGathering(gatheringId, '我的聚会');
+      return; 
     }
     var name = params.gatheringName || '我的聚会';
 
-    /* 2. 初始化同步 (连接 Firebase) */
+    /* 2. 关键修复：无条件加载本地记忆！ */
+    // 无论有没有云端数据，先恢复手机里存的"我是谁"和"我提过什么菜"
+    var g = window.Models.createGathering(gatheringId, decodeURIComponent(name));
+    window.Store.setGathering(g);
+    window.Store.loadFromStorage(gatheringId); 
+    
+    // 记录一下本地是否有数据，用于后面恢复上云
+    var recoveredLocalDishes = window.Store.dishes.length > 0; 
+
+    /* 3. 初始化同步 (连接 Firebase) */
     if (window.Sync && window.FirebaseConfig) {
       window.Sync.init(gatheringId);
     }
 
-    /* 3. 加载本地缓存！(这步是为了找回你之前提的菜) */
-    var storedDishes = window.Store._storage.getItem('dishapp_dishes_' + gatheringId);
-    var hasLocalData = false;
-    
-    if (storedDishes) {
-      try {
-         var local = JSON.parse(storedDishes);
-         if (Object.keys(local).length > 0) hasLocalData = true; // 确实有菜
-      } catch(e) {}
-    }
-    
-    // 先加载到内存
-    var g = window.Models.createGathering(gatheringId, decodeURIComponent(name));
-    window.Store.setGathering(g);
-    if (hasLocalData) {
-        window.Store.loadFromStorage(gatheringId);
-        console.log('Local cache loaded: ' + window.Store.dishes.length + ' dishes.');
-    }
-
-    /* 4. 身份检查 */
+    /* 4. 身份检查 & 界面显示 */
+    // 如果本地有存档，直接用；没有才弹窗问名字
     if (window.Store._state.user && window.Store._state.user.name) {
+      console.log('👋 欢迎回来: ' + window.Store._state.user.name);
       showMainUI();
+      
+      // 🔥 核心：如果有本地缓存，延迟推送到云端，恢复数据
+      if (recoveredLocalDishes) {
+        recoverDataToCloud();
+      }
     } else {
       if (window.NicknameModal) {
         window.NicknameModal.show();
-        window.NicknameModal.getUser().then((u) => {
+        window.NicknameModal.getUser().then(function(u) {
           window.Store.setUser(u);
           showMainUI();
+          // 同样尝试恢复缓存
+          if (recoveredLocalDishes) {
+             recoverDataToCloud();
+          }
         });
       }
     }
 
-    /* 5. 监听变化：只有“新增/删除”时才推送到云端 */
+    /* 5. 监听数据变动 */
     window.Store.subscribe(function (state, change) {
-      // 🛡 保护：如果本地是空的，千万别推送！
-      if (window.Sync && window.Store.dishes.length === 0) return;
-
-      // 🛡 保护：如果是刚刚从云端同步回来的数据，别推回去（防死循环）
+      // 防止云端回传的数据再次被推送回去造成死循环
       if (change && change.type === 'sync:restore') return;
 
-      console.log('Pushing to cloud...');
+      // 🛡 保护：如果本地是空的，不推送到云端（防止清空云端）
+      if (window.Sync && window.Store.dishes.length === 0) return;
+
+      console.log('☁️ 同步到云端...');
       window.Sync.push(state.dishes);
 
       // 刷新 UI
@@ -70,18 +72,7 @@
       }
     });
 
-    /* 6. 关键：如果有本地缓存，延迟 2 秒强行推送到云端 */
-    // (这能解决 Firebase 加载慢导致的数据丢失问题)
-    if (hasLocalData) {
-      console.log('Scheduling local data restore to Cloud...');
-      setTimeout(() => {
-        if (window.Store && window.Store.dishes.length > 0 && window.Sync) {
-             window.Sync.push(window.Store._state.dishes);
-        }
-      }, 2000);
-    }
-
-    /* 7. Tab 切换 */
+    /* 6. Tab 切换 */
     if (window.TabBar) {
       window.TabBar.onChange(function (tab) {
         if (tab === 'menu' && window.MenuGenerator) {
@@ -91,8 +82,18 @@
         }
       });
     }
-    
+
     window.addEventListener('beforeunload', () => window.Sync.destroy());
+  }
+
+  // 辅助函数：把本地缓存“搬运”上云
+  function recoverDataToCloud() {
+    if (window.Sync && window.Store.dishes.length > 0) {
+      setTimeout(() => {
+        console.log('💾 正在恢复本地缓存到云端...');
+        window.Sync.push(window.Store._state.dishes);
+      }, 2000); // 延迟 2 秒确保网络连接成功
+    }
   }
 
   function showMainUI() {
