@@ -61,12 +61,16 @@
       return () => { this._subscribers.delete(fn); };
     }
 
-    _notify(change) {
-      this._saveToStorage();
-      // 将本地数据推送到云端 (Sync 模块)
+       _notify(change) {
+      this._saveToStorage(); // 只保存到手机本地
+      
+      // 🛡 已删除：不再让 Store 自动把数据推到云端，防止空数据覆盖云端
+      /* 
       if (window.Sync) {
         window.Sync.push(this._state.dishes);
-      }
+      } 
+      */
+      
       this._subscribers.forEach((fn) => { fn(this._state, change); });
     }
 
